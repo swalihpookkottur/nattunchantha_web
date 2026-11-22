@@ -1,0 +1,6 @@
+{
+  "name": "Nattuchantha B2B",
+  "description": "Wholesale B2B grocery ordering platform for Kerala retail stores and supermarkets.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
