@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # നിങ്ങളുടെ main branch പേര് 'master' ആണെങ്കിൽ അത് മാറ്റുക
+    branches: ["main"]
 
 permissions:
   contents: read
