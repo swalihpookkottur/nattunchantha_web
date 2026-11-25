@@ -255,7 +255,7 @@ export default function App() {
     CATEGORIES.find((c) => c.id === selectedCategory)?.label ?? 'All Products';
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-900">
+    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-900 overflow-x-hidden">
       <Header
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
@@ -265,8 +265,8 @@ export default function App() {
         onLogoClick={handleResetFilters}
       />
 
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-5">
-        <div className="flex flex-col lg:flex-row items-start gap-6">
+      <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-5 min-w-0">
+        <div className="flex flex-col lg:flex-row items-start gap-6 min-w-0">
           {/* Left Sidebar: Categories */}
           <CategorySidebar
             selectedCategory={selectedCategory}
@@ -278,7 +278,7 @@ export default function App() {
           {/* Center: Brand Filter Bar & 4-Column Product Grid */}
           <div className="flex-1 min-w-0 w-full">
             {/* Heading & Filter Bar */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
+            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <div>
                   <h1 className="font-display text-lg font-bold text-slate-900">
