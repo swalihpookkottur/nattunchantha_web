@@ -35,11 +35,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   const moqUnit = pluralizeUnit(product.unitLabel, product.moq);
 
   return (
-    <article className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col justify-between transition-all duration-150 hover:border-gray-300 hover:shadow-sm">
-      <div>
+    <article className="min-w-0 bg-white border border-gray-200 rounded-xl p-4 flex flex-col justify-between transition-all duration-150 hover:border-gray-300 hover:shadow-sm">
+      <div className="min-w-0">
         {/* Product Image on Pure White Background */}
         <div className="relative aspect-[4/3] w-full bg-white rounded-lg overflow-hidden mb-3 flex items-center justify-center border border-gray-100">
-          {!imageError ? (
+          {!imageError && product.image ? (
             <img
               src={product.image}
               alt={product.title}
@@ -65,11 +65,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
         {/* Quiet Brand & SKU Line */}
         <div className="flex items-center justify-between gap-2 text-xs text-slate-500 mb-1">
-          <span>
+          <span className="truncate">
             {product.brand} · <span className="font-mono">{product.sku}</span>
           </span>
           {inCartQty > 0 && (
-            <span className="font-semibold text-[#0056D6] tabular-nums whitespace-nowrap">
+            <span className="font-semibold text-[#0056D6] tabular-nums whitespace-nowrap shrink-0">
               {inCartQty} in cart
             </span>
           )}
@@ -145,7 +145,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         <button
           type="button"
           onClick={handleAdd}
-          className={`flex-1 h-10 px-3 inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#28A745] focus-visible:ring-offset-1 ${
+          className={`flex-1 min-w-0 h-10 px-3 inline-flex items-center justify-center gap-1.5 text-sm font-semibold text-white rounded-lg transition-colors whitespace-nowrap cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#28A745] focus-visible:ring-offset-1 ${
             justAdded
               ? 'bg-emerald-700'
               : 'bg-[#28A745] hover:bg-[#218838] active:bg-[#1e7e34]'
