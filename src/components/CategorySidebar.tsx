@@ -49,7 +49,7 @@ export const CategorySidebar: React.FC<CategorySidebarProps> = ({
       {/* Mobile / Tablet horizontal category bar */}
       <nav
         aria-label="Product categories"
-        className="lg:hidden flex items-center gap-2 overflow-x-auto pb-2 mb-4 custom-scrollbar"
+        className="lg:hidden w-full max-w-full min-w-0 flex items-center gap-2 overflow-x-auto pb-2 mb-4 custom-scrollbar"
       >
         {CATEGORIES.map((category) => {
           const Icon = CATEGORY_ICONS[category.id];
