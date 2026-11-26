@@ -4,11 +4,13 @@ import {
   Minus,
   Plus,
   RotateCcw,
+  Share2,
   ShoppingCart,
   Trash2,
   Truck,
 } from 'lucide-react';
 import { CartItem, PaymentMethod, PRODUCTS, Product } from '../data/catalog';
+import { groupOrderByDistributor } from '../data/platformData';
 import { formatINR, pluralizeUnit } from '../utils/format';
 
 export interface CartComputation {
@@ -97,6 +99,7 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
   className = '',
 }) => {
   const summary = computeCartTotals(cart);
+  const distributorGroups = groupOrderByDistributor(cart);
   const exceedsCredit =
     paymentMethod === 'credit-account' && summary.grandTotal > creditAvailable;
 
@@ -150,7 +153,7 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
         </div>
       ) : (
         <>
-          <div className="px-5 py-3 divide-y divide-gray-100 max-h-[300px] xl:max-h-[320px] overflow-y-auto custom-scrollbar">
+          <div className="px-5 py-3 divide-y divide-gray-100 max-h-[270px] xl:max-h-[290px] overflow-y-auto custom-scrollbar">
             {summary.lines.map(({ product, quantity, lineSubtotal }) => {
               const unitText = pluralizeUnit(product.unitLabel, quantity);
               return (
@@ -215,6 +218,27 @@ export const OrderSummary: React.FC<OrderSummaryProps> = ({
                 </div>
               );
             })}
+          </div>
+
+          {/* Distributor Split Preview */}
+          <div className="px-5 py-2.5 bg-blue-50/60 border-t border-blue-100/80 text-xs">
+            <div className="flex items-center gap-1.5 font-semibold text-[#0056D6] mb-1">
+              <Share2 className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                Splits into {distributorGroups.length}{' '}
+                {distributorGroups.length === 1 ? 'Distributor Order' : 'Distributor Orders'}
+              </span>
+            </div>
+            <div className="space-y-1 text-[11px] text-slate-600">
+              {distributorGroups.map((g) => (
+                <div key={g.distributor.id} className="flex items-center justify-between gap-2">
+                  <span className="truncate">{g.distributor.name}</span>
+                  <span className="font-semibold text-slate-800 tabular-nums shrink-0">
+                    {g.lines.length} SKU · {formatINR(g.grandTotal)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Billing Breakdown */}
