@@ -1,466 +1,145 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpDown, SearchX, X } from 'lucide-react';
-import {
-  BRAND_FILTERS,
-  BrandFilter,
-  CATEGORIES,
-  CartItem,
-  CategoryId,
-  INITIAL_CART,
-  INITIAL_PAST_ORDERS,
-  PastOrder,
-  PaymentMethod,
-  Product,
-  PRODUCTS,
-} from './data/catalog';
-import { Header } from './components/Header';
-import { CategorySidebar } from './components/CategorySidebar';
-import { ProductCard } from './components/ProductCard';
-import { computeCartTotals, OrderSummary } from './components/OrderSummary';
-import { QuickReorderModal } from './components/QuickReorderModal';
-import {
-  ConfirmedOrderReceipt,
-  OrderConfirmationModal,
-} from './components/OrderConfirmationModal';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowDownUp, ArrowRight, BadgePercent, Boxes, Check, CheckCircle2, ChevronDown, ChevronRight, CircleHelp, Clipboard, CreditCard, Download, FileText, Headphones, LayoutDashboard, LockKeyhole, LogOut, MapPin, Minus, Package, Plus, Search, ShieldCheck, ShoppingBag, ShoppingCart, SlidersHorizontal, Sparkles, Store, Truck, UserRound, Wallet, X } from 'lucide-react';
+import { BRAND_FILTERS, CATEGORIES, INITIAL_CART, INITIAL_PAST_ORDERS, PRODUCTS, type BrandFilter, type CartItem, type CategoryId, type PastOrder, type PaymentMethod, type Product } from './data/catalog';
+import { buildDistributorWhatsAppText, DISTRIBUTORS, ENTERPRISE_SCHEMES, groupOrderByDistributor, INITIAL_PARTIES, INITIAL_STATEMENT_REQUESTS, type PartyAccount, type StatementRequest, type UserRole } from './data/platformData';
 
-type SortOption = 'featured' | 'margin-desc' | 'price-asc' | 'price-desc';
+const STORE = { cart: 'nattuchantha_cart_v2', orders: 'nattuchantha_orders_v2', parties: 'nattuchantha_parties_v1', statements: 'nattuchantha_statements_v1' };
+const money = (value: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(value);
+function read<T,>(key: string, fallback: T): T { try { const value = localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; } }
+function save(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Local storage can be disabled by the browser. */ } }
 
-const STORAGE_CART_KEY = 'nattuchantha_b2b_cart_v1';
-const STORAGE_ORDERS_KEY = 'nattuchantha_b2b_orders_v1';
-const STORE_CREDIT_LIMIT = 150000;
-
-function loadInitialCart(): CartItem[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_CART_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // Ignore storage read errors
-  }
-  return INITIAL_CART;
-}
-
-function loadInitialOrders(): PastOrder[] {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_ORDERS_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {
-    // Ignore storage read errors
-  }
-  return INITIAL_PAST_ORDERS;
-}
+type Portal = 'enterprise' | 'admin' | 'distributor' | null;
+type EnterpriseTab = 'overview' | 'schemes' | 'statements';
 
 export default function App() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<CategoryId>('all');
-  const [selectedBrand, setSelectedBrand] = useState<BrandFilter>('All Brands');
-  const [sortBy, setSortBy] = useState<SortOption>('featured');
+  const [cart, setCart] = useState<CartItem[]>(() => read(STORE.cart, INITIAL_CART));
+  const [orders, setOrders] = useState<PastOrder[]>(() => read(STORE.orders, INITIAL_PAST_ORDERS));
+  const [parties, setParties] = useState<PartyAccount[]>(() => read(STORE.parties, INITIAL_PARTIES));
+  const [requests, setRequests] = useState<StatementRequest[]>(() => read(STORE.statements, INITIAL_STATEMENT_REQUESTS));
+  const [party, setParty] = useState<PartyAccount>(INITIAL_PARTIES[0]);
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState<CategoryId>('all');
+  const [brand, setBrand] = useState<BrandFilter>('All Brands');
+  const [sort, setSort] = useState('featured');
+  const [payment, setPayment] = useState<PaymentMethod>('pay-on-delivery');
+  const [portal, setPortal] = useState<Portal>(null);
+  const [enterpriseTab, setEnterpriseTab] = useState<EnterpriseTab>('overview');
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [adminCode, setAdminCode] = useState('');
+  const [loginId, setLoginId] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [toast, setToast] = useState('');
+  const [receipt, setReceipt] = useState<{ id: string; time: string; lines: CartItem[]; payment: PaymentMethod } | null>(null);
+  const [showReorder, setShowReorder] = useState(false);
+  const [partyForm, setPartyForm] = useState({ businessName: '', loginId: '', password: '', role: 'retailer' as PartyAccount['role'], storeCode: '', routeArea: '', phone: '', creditLimit: '50000' });
 
-  const [cart, setCart] = useState<CartItem[]>(loadInitialCart);
-  const [pastOrders, setPastOrders] = useState<PastOrder[]>(loadInitialOrders);
-  const [paymentMethod, setPaymentMethod] =
-    useState<PaymentMethod>('pay-on-delivery');
+  useEffect(() => { save(STORE.cart, cart); }, [cart]);
+  useEffect(() => { save(STORE.orders, orders); }, [orders]);
+  useEffect(() => { save(STORE.parties, parties); }, [parties]);
+  useEffect(() => { save(STORE.statements, requests); }, [requests]);
+  useEffect(() => { const onKey = (event: KeyboardEvent) => { if (event.key === '/' && !['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement)?.tagName)) { event.preventDefault(); document.getElementById('catalog-search')?.focus(); } if (event.key === 'Escape') { setPortal(null); setReceipt(null); setShowReorder(false); } }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, []);
+  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(''), 2600); return () => window.clearTimeout(timer); }, [toast]);
 
-  const [isQuickReorderOpen, setIsQuickReorderOpen] = useState(false);
-  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false);
-  const [confirmedReceipt, setConfirmedReceipt] =
-    useState<ConfirmedOrderReceipt | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const lines = useMemo(() => cart.flatMap(item => { const product = PRODUCTS.find(p => p.id === item.productId); return product ? [{ product, quantity: item.quantity, amount: product.wholesalePrice * item.quantity, gst: product.wholesalePrice * item.quantity * product.gstRate / 100 }] : []; }), [cart]);
+  const subtotal = lines.reduce((sum, line) => sum + line.amount, 0);
+  const gst = lines.reduce((sum, line) => sum + line.gst, 0);
+  const total = subtotal + gst;
+  const units = lines.reduce((sum, line) => sum + line.quantity, 0);
+  const groups = useMemo(() => groupOrderByDistributor(cart), [cart]);
+  const creditAvailable = Math.max(0, party.creditLimit - party.creditUsed);
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    const result = PRODUCTS.filter(p => (category === 'all' || (category === 'deals' ? p.isDeal : p.category === category)) && (brand === 'All Brands' || p.brand === brand) && (!query || `${p.title} ${p.shortTitle} ${p.brand} ${p.sku}`.toLowerCase().includes(query)));
+    if (sort === 'margin') return result.sort((a,b) => b.marginPercent - a.marginPercent);
+    if (sort === 'low') return result.sort((a,b) => a.wholesalePrice - b.wholesalePrice);
+    return result;
+  }, [search, category, brand, sort]);
 
-  const desktopSummaryRef = useRef<HTMLDivElement>(null);
+  const add = (product: Product, quantity = product.moq) => { setCart(prev => { const existing = prev.find(item => item.productId === product.id); return existing ? prev.map(item => item.productId === product.id ? { ...item, quantity: item.quantity + quantity } : item) : [...prev, { productId: product.id, quantity }]; }); setToast(`${product.shortTitle} added to your order`); };
+  const changeQty = (product: Product, quantity: number) => setCart(prev => quantity <= 0 ? prev.filter(item => item.productId !== product.id) : prev.map(item => item.productId === product.id ? { ...item, quantity: Math.max(product.moq, quantity) } : item));
+  const placeOrder = () => { if (!cart.length) return; if (payment === 'credit-account' && total > creditAvailable) { setToast('Order exceeds your available credit. Choose Pay on Delivery or reduce your order.'); return; } const id = `NC-${String(Date.now()).slice(-6)}`; const time = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }); const items = cart.map(item => ({ ...item })); setReceipt({ id, time, lines: items, payment }); setOrders(prev => [{ id, dateLabel: `Just now · ${time}`, paymentMethod: payment, status: 'Pending Dispatch', items, totalAmount: total }, ...prev]); if (payment === 'credit-account') setParty(prev => ({ ...prev, creditUsed: prev.creditUsed + total })); setCart([]); };
+  const signIn = (id: string, password: string) => { const found = parties.find(p => p.active && p.loginId.toLowerCase() === id.toLowerCase() && p.password === password); if (!found) { setToast('Account not found. Try a demo account below.'); return; } setParty(found); setPortal(null); setToast(`Welcome, ${found.businessName}`); };
+  const requestStatement = () => { const item: StatementRequest = { id: `STMT-${Date.now().toString().slice(-5)}`, partyId: party.id, businessName: party.businessName, storeCode: party.storeCode, period: 'Current billing cycle', requestedAt: new Date().toLocaleDateString('en-IN'), status: 'Pending' }; setRequests(prev => [item, ...prev]); setToast('Statement request submitted'); };
+  const copyText = async (text: string) => { try { await navigator.clipboard.writeText(text); setToast('Order details copied to clipboard'); } catch { setToast('Clipboard access unavailable in this browser'); } };
+  const placeScheme = (productId: string, quantity: number) => { const product = PRODUCTS.find(p => p.id === productId); if (product) add(product, Math.max(product.moq, quantity)); setPortal(null); };
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_CART_KEY, JSON.stringify(cart));
-    } catch {
-      // Ignore storage write errors
-    }
-  }, [cart]);
+  return <div className="min-h-screen overflow-x-hidden bg-[#f7f8f4] text-[#17261f]">
+    <header className="sticky top-0 z-30 border-b border-[#e7e9e1] bg-[#fbfcf9]/95 backdrop-blur-md">
+      <div className="mx-auto flex h-[68px] max-w-[1440px] items-center gap-3 px-4 sm:px-7">
+        <button className="flex shrink-0 items-center gap-2.5 text-left" onClick={() => { setCategory('all'); setBrand('All Brands'); setSearch(''); }} aria-label="Nattuchantha home"><span className="grid h-10 w-10 place-items-center rounded-[14px] bg-[#174f38] text-white"><Store size={20}/></span><span><span className="block font-display text-[17px] font-extrabold leading-tight tracking-[-.7px]">Nattu<span className="text-[#4c976b]">chantha</span></span><span className="block text-[9px] font-bold uppercase tracking-[2px] text-[#7b887e]">B2B · Kerala</span></span></button>
+        <div className="relative ml-2 hidden max-w-[470px] flex-1 md:block"><Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#89958b]" size={17}/><input id="catalog-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products, brands, SKU..." className="h-10 w-full rounded-xl border border-[#e6e9e2] bg-[#f5f7f2] pl-10 pr-14 text-[13px] outline-none transition focus:border-[#79a78a] focus:bg-white"/><kbd className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-[#e3e7df] bg-white px-1.5 py-0.5 text-[10px] text-[#89958b]">/</kbd></div>
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2"><button onClick={() => setShowReorder(true)} className="hidden items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-[#546358] hover:bg-[#f0f3ed] sm:flex"><ArrowDownUp size={15}/> Reorder</button><button onClick={() => { setPortal('enterprise'); setEnterpriseTab('overview'); }} className="hidden items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-[#546358] hover:bg-[#f0f3ed] md:flex"><LayoutDashboard size={15}/> Enterprise</button><button onClick={() => { setPortal('admin'); setAdminUnlocked(false); setAdminCode(''); }} className="hidden items-center gap-2 rounded-xl px-3 py-2 text-[12px] font-semibold text-[#546358] hover:bg-[#f0f3ed] lg:flex"><ShieldCheck size={15}/> Admin</button><button onClick={() => setPortal('distributor')} aria-label="Distributor view" className="grid h-9 w-9 place-items-center rounded-xl text-[#546358] hover:bg-[#f0f3ed]"><Truck size={17}/></button><button onClick={() => document.getElementById('order-panel')?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className="relative flex h-10 items-center gap-2 rounded-xl bg-[#174f38] px-3.5 text-white shadow-sm hover:bg-[#103e2b]"><ShoppingBag size={17}/><span className="hidden text-[12px] font-semibold sm:inline">My order</span><span className="grid h-[19px] min-w-[19px] place-items-center rounded-full bg-[#d7ef8b] px-1 text-[10px] font-extrabold text-[#174f38]">{units}</span></button></div>
+      </div>
+      <div className="border-t border-[#edf0e9] px-4 py-2.5 md:hidden"><div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-[#89958b]" size={16}/><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products, brands, SKU..." className="h-10 w-full rounded-xl border border-[#e6e9e2] bg-[#f5f7f2] pl-9 pr-3 text-[13px] outline-none focus:border-[#79a78a]"/></div></div>
+    </header>
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(pastOrders));
-    } catch {
-      // Ignore storage write errors
-    }
-  }, [pastOrders]);
+    <main className="mx-auto max-w-[1440px] px-4 pb-24 pt-5 sm:px-7 sm:pt-7">
+      <section className="relative mb-6 overflow-hidden rounded-[22px] bg-[#174f38] px-5 py-6 text-white sm:px-8 sm:py-7"><div className="absolute -right-8 -top-20 h-64 w-64 rounded-full border-[35px] border-white/[.045]"/><div className="absolute right-32 top-12 hidden h-32 w-32 rounded-full border border-white/[.09] lg:block"/><div className="relative flex flex-wrap items-end justify-between gap-5"><div><div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-[#d9efc8]"><MapPin size={11}/> SERVING KOZHIKODE · MALAPPURAM · WAYANAD</div><h1 className="font-display text-[24px] font-extrabold leading-tight tracking-[-1px] sm:text-[30px]">Good morning, {party.businessName.split(' ')[0]} <span className="inline-block">🌿</span></h1><p className="mt-1.5 text-[12px] text-white/70">Your wholesale market, delivered on your route.</p></div><div className="flex items-center gap-2"><button onClick={() => setShowReorder(true)} className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3.5 py-2.5 text-[11px] font-semibold text-white hover:bg-white/15"><ArrowDownUp size={14}/> Quick reorder</button><div className="hidden items-center gap-2 rounded-xl bg-white/10 px-3.5 py-2.5 sm:flex"><Wallet size={15} className="text-[#d9efc8]"/><span className="text-[10px] text-white/70">Available credit</span><b className="text-[12px]">{money(creditAvailable)}</b></div></div></div></section>
 
-  useEffect(() => {
-    if (!toastMessage) return;
-    const timer = window.setTimeout(() => setToastMessage(null), 2600);
-    return () => window.clearTimeout(timer);
-  }, [toastMessage]);
+      <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <section className="min-w-0"><div className="mb-4 flex items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[1.7px] text-[#839087]">WHOLESALE CATALOG</p><h2 className="mt-1 font-display text-[21px] font-extrabold tracking-[-.7px]">Stock up, sell more.</h2><p className="mt-1 text-[11px] text-[#849087]">{filtered.length} products · Wholesale prices exclude GST</p></div><label className="flex items-center gap-1.5 rounded-lg border border-[#e5e9e1] bg-white px-2.5 text-[#849087]"><SlidersHorizontal size={13}/><select aria-label="Sort products" value={sort} onChange={e => setSort(e.target.value)} className="h-9 max-w-[120px] bg-transparent text-[11px] font-semibold text-[#536157] outline-none"><option value="featured">Featured</option><option value="margin">Top margin</option><option value="low">Price: low first</option></select></label></div>
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">{CATEGORIES.map(item => <button key={item.id} onClick={() => setCategory(item.id)} className={`shrink-0 rounded-full border px-3.5 py-2 text-[11px] font-semibold transition ${category === item.id ? 'border-[#174f38] bg-[#174f38] text-white' : 'border-[#e5e9e1] bg-white text-[#617066] hover:border-[#afc8b4]'}`}>{item.label}</button>)}</div>
+          <div className="mb-4 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]">{BRAND_FILTERS.map(item => <button key={item} onClick={() => setBrand(item)} className={`shrink-0 rounded-md px-2.5 py-1.5 text-[10px] font-semibold ${brand === item ? 'bg-[#e2eee3] text-[#245b3d]' : 'text-[#7a867d] hover:bg-white'}`}>{item}</button>)}</div>
+          {filtered.length ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-3">{filtered.map(product => { const count = cart.find(item => item.productId === product.id)?.quantity ?? 0; return <ProductTile key={product.id} product={product} quantity={count} add={add} update={changeQty}/>; })}</div> : <div className="rounded-2xl border border-dashed border-[#dce2d9] bg-white py-16 text-center"><Search size={25} className="mx-auto text-[#97a49a]"/><p className="mt-3 font-semibold">No matching products</p><button onClick={() => { setSearch(''); setCategory('all'); setBrand('All Brands'); }} className="mt-2 text-xs font-bold text-[#26714a]">Clear filters</button></div>}
+        </section>
 
-  const cartSummary = useMemo(() => computeCartTotals(cart), [cart]);
-
-  const creditUsed = useMemo(() => {
-    const outstanding = pastOrders
-      .filter((o) => o.paymentMethod === 'credit-account' && o.status === 'Pending Dispatch')
-      .reduce((sum, o) => sum + o.totalAmount, 0);
-    return 24500 + outstanding;
-  }, [pastOrders]);
-
-  const creditAvailable = Math.max(0, STORE_CREDIT_LIMIT - creditUsed);
-
-  const filteredProducts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-
-    const list = PRODUCTS.filter((product) => {
-      if (selectedCategory === 'deals') {
-        if (!product.isDeal) return false;
-      } else if (selectedCategory !== 'all') {
-        if (product.category !== selectedCategory) return false;
-      }
-
-      if (selectedBrand !== 'All Brands' && product.brand !== selectedBrand) {
-        return false;
-      }
-
-      if (query) {
-        const haystack = `${product.title} ${product.shortTitle} ${product.brand} ${product.sku} ${product.category}`.toLowerCase();
-        if (!haystack.includes(query)) return false;
-      }
-
-      return true;
-    });
-
-    if (sortBy === 'margin-desc') {
-      return [...list].sort((a, b) => b.marginPercent - a.marginPercent);
-    }
-    if (sortBy === 'price-asc') {
-      return [...list].sort((a, b) => a.wholesalePrice - b.wholesalePrice);
-    }
-    if (sortBy === 'price-desc') {
-      return [...list].sort((a, b) => b.wholesalePrice - a.wholesalePrice);
-    }
-    return list;
-  }, [searchQuery, selectedCategory, selectedBrand, sortBy]);
-
-  const handleAddToCart = (product: Product, quantity: number) => {
-    setCart((prev) => {
-      const existing = prev.find((item) => item.productId === product.id);
-      if (existing) {
-        return prev.map((item) =>
-          item.productId === product.id
-            ? { ...item, quantity: item.quantity + quantity }
-            : item
-        );
-      }
-      return [...prev, { productId: product.id, quantity }];
-    });
-    setToastMessage(`Added ${quantity} × ${product.shortTitle} to order`);
-  };
-
-  const handleUpdateQuantity = (productId: string, nextQty: number) => {
-    setCart((prev) =>
-      prev.map((item) =>
-        item.productId === productId ? { ...item, quantity: nextQty } : item
-      )
-    );
-  };
-
-  const handleRemoveItem = (productId: string) => {
-    setCart((prev) => prev.filter((item) => item.productId !== productId));
-  };
-
-  const handleClearCart = () => {
-    setCart([]);
-    setToastMessage('Order cart cleared');
-  };
-
-  const handleRepeatOrder = (order: PastOrder, mode: 'merge' | 'replace') => {
-    if (mode === 'replace') {
-      setCart(order.items.map((i) => ({ ...i })));
-      setPaymentMethod(order.paymentMethod);
-      setToastMessage(`Loaded ${order.id} into Order Summary`);
-    } else {
-      setCart((prev) => {
-        const next = [...prev];
-        for (const incoming of order.items) {
-          const existingIdx = next.findIndex(
-            (item) => item.productId === incoming.productId
-          );
-          if (existingIdx >= 0) {
-            next[existingIdx] = {
-              ...next[existingIdx],
-              quantity: next[existingIdx].quantity + incoming.quantity,
-            };
-          } else {
-            next.push({ ...incoming });
-          }
-        }
-        return next;
-      });
-      setToastMessage(`Added items from ${order.id} to cart`);
-    }
-    setIsQuickReorderOpen(false);
-  };
-
-  const handlePlaceOrder = () => {
-    if (cartSummary.lines.length === 0) return;
-
-    const orderNum = 8450 + pastOrders.length;
-    const orderId = `ORD-${orderNum}`;
-    const placedAt = new Date().toLocaleString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    const newPastOrder: PastOrder = {
-      id: orderId,
-      dateLabel: `Just now · ${placedAt}`,
-      paymentMethod,
-      status: 'Pending Dispatch',
-      items: cart.map((item) => ({ ...item })),
-      totalAmount: cartSummary.grandTotal,
-    };
-
-    setConfirmedReceipt({
-      orderId,
-      placedAt,
-      paymentMethod,
-      summary: cartSummary,
-    });
-    setPastOrders((prev) => [newPastOrder, ...prev]);
-    setCart([]);
-    setIsMobileCartOpen(false);
-  };
-
-  const handleCartHeaderClick = () => {
-    if (window.innerWidth < 1280) {
-      setIsMobileCartOpen(true);
-    } else {
-      desktopSummaryRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-      });
-    }
-  };
-
-  const handleResetFilters = () => {
-    setSearchQuery('');
-    setSelectedCategory('all');
-    setSelectedBrand('All Brands');
-    setSortBy('featured');
-  };
-
-  const activeCategoryLabel =
-    CATEGORIES.find((c) => c.id === selectedCategory)?.label ?? 'All Products';
-
-  return (
-    <div className="min-h-screen flex flex-col bg-[#F8FAFC] text-slate-900 overflow-x-hidden">
-      <Header
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        cartItemCount={cartSummary.totalUnits}
-        onOpenQuickReorder={() => setIsQuickReorderOpen(true)}
-        onCartClick={handleCartHeaderClick}
-        onLogoClick={handleResetFilters}
-      />
-
-      <main className="flex-1 max-w-[1600px] w-full mx-auto px-4 sm:px-6 py-5 min-w-0">
-        <div className="flex flex-col lg:flex-row items-start gap-6 min-w-0">
-          {/* Left Sidebar: Categories */}
-          <CategorySidebar
-            selectedCategory={selectedCategory}
-            onSelectCategory={setSelectedCategory}
-            creditUsed={creditUsed}
-            creditLimit={STORE_CREDIT_LIMIT}
-          />
-
-          {/* Center: Brand Filter Bar & 4-Column Product Grid */}
-          <div className="flex-1 min-w-0 w-full">
-            {/* Heading & Filter Bar */}
-            <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 min-w-0">
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div>
-                  <h1 className="font-display text-lg font-bold text-slate-900">
-                    {activeCategoryLabel}
-                  </h1>
-                  <p className="text-xs text-slate-500 mt-0.5 tabular-nums">
-                    Showing {filteredProducts.length} wholesale{' '}
-                    {filteredProducts.length === 1 ? 'SKU' : 'SKUs'} · Prices ex-GST
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <ArrowUpDown
-                    className="w-3.5 h-3.5 text-slate-400 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <label htmlFor="catalog-sort" className="sr-only">
-                    Sort products
-                  </label>
-                  <select
-                    id="catalog-sort"
-                    value={sortBy}
-                    onChange={(e) => setSortBy(e.target.value as SortOption)}
-                    className="h-9 px-3 text-xs font-medium text-slate-700 bg-slate-50 border border-gray-200 rounded-lg focus:outline-none focus:border-[#0056D6] cursor-pointer"
-                  >
-                    <option value="featured">Sort: Recommended</option>
-                    <option value="margin-desc">Sort: Highest Margin</option>
-                    <option value="price-asc">Sort: Price Low to High</option>
-                    <option value="price-desc">Sort: Price High to Low</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Brand Filter Strip */}
-              <div
-                className="flex items-center gap-1.5 overflow-x-auto pb-0.5 custom-scrollbar"
-                role="tablist"
-                aria-label="Filter by brand"
-              >
-                {BRAND_FILTERS.map((brand) => {
-                  const isActive = selectedBrand === brand;
-                  return (
-                    <button
-                      key={brand}
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      onClick={() => setSelectedBrand(brand)}
-                      className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0056D6] ${
-                        isActive
-                          ? 'bg-[#0056D6] text-white border-[#0056D6]'
-                          : 'bg-slate-50 text-slate-700 border-gray-200 hover:bg-slate-100 hover:text-slate-900'
-                      }`}
-                    >
-                      {brand}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Product Grid */}
-            {filteredProducts.length === 0 ? (
-              <div className="bg-white border border-gray-200 rounded-xl py-16 px-6 text-center flex flex-col items-center">
-                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
-                  <SearchX className="w-6 h-6" />
-                </div>
-                <h2 className="font-display text-base font-bold text-slate-900">
-                  No matching wholesale products found
-                </h2>
-                <p className="text-sm text-slate-500 mt-1 max-w-md">
-                  Try clearing your brand filter or searching by another product name, brand, or SKU code.
-                </p>
-                <button
-                  type="button"
-                  onClick={handleResetFilters}
-                  className="mt-4 px-4 py-2 text-xs font-semibold text-white bg-[#0056D6] hover:bg-blue-700 rounded-lg transition-colors cursor-pointer"
-                >
-                  Reset All Filters
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-                {filteredProducts.map((product) => {
-                  const inCartItem = cart.find((c) => c.productId === product.id);
-                  return (
-                    <ProductCard
-                      key={product.id}
-                      product={product}
-                      inCartQty={inCartItem?.quantity ?? 0}
-                      onAddToCart={handleAddToCart}
-                    />
-                  );
-                })}
-              </div>
-            )}
+        <aside id="order-panel" className="min-w-0 xl:sticky xl:top-[88px]"><div className="overflow-hidden rounded-[18px] border border-[#e5e9e1] bg-white shadow-[0_8px_24px_rgba(29,51,36,.045)]"><div className="flex items-center justify-between border-b border-[#edf0e9] px-4 py-4"><div><h2 className="font-display text-[15px] font-extrabold">Your order</h2><p className="mt-0.5 text-[10px] text-[#87938a]">{units} units · {groups.length} distributor{groups.length === 1 ? '' : 's'}</p></div><button onClick={() => setShowReorder(true)} className="text-[10px] font-bold text-[#26714a]">Reorder ↗</button></div>
+          <div className="max-h-[320px] overflow-y-auto px-4">{lines.length ? lines.map(({ product, quantity, amount }) => <div key={product.id} className="flex gap-2.5 border-b border-[#f0f2ed] py-3 last:border-0"><div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-lg bg-[#f5f6f1]"><img src={product.image} alt="" className="h-full w-full object-contain mix-blend-multiply"/></div><div className="min-w-0 flex-1"><div className="truncate text-[11px] font-bold">{product.shortTitle}</div><div className="mt-0.5 text-[9px] text-[#87938a]">{money(product.wholesalePrice)} · {product.gstRate}% GST · MOQ {product.moq}</div><div className="mt-1.5 flex items-center justify-between"><div className="flex items-center rounded-md border border-[#e5e9e1]"><button aria-label={`Decrease ${product.shortTitle}`} onClick={() => changeQty(product, quantity - product.moq)} className="grid h-6 w-6 place-items-center text-[#657268]"><Minus size={11}/></button><span className="min-w-6 text-center text-[10px] font-bold">{quantity}</span><button aria-label={`Increase ${product.shortTitle}`} onClick={() => changeQty(product, quantity + product.moq)} className="grid h-6 w-6 place-items-center text-[#26714a]"><Plus size={11}/></button></div><b className="text-[11px]">{money(amount)}</b></div></div></div>) : <div className="py-10 text-center"><ShoppingCart size={23} className="mx-auto text-[#b3bdb3]"/><p className="mt-2 text-[11px] font-semibold text-[#536157]">Your order is waiting</p><p className="mt-1 text-[10px] text-[#929d94]">Add products from the catalog</p></div>}</div>
+          {groups.length > 0 && <div className="mx-4 my-2 rounded-xl bg-[#f4f7f1] p-3"><div className="mb-2 flex items-center justify-between"><span className="text-[9px] font-bold uppercase tracking-[1.2px] text-[#69776c]">DISTRIBUTOR SPLIT</span><span className="text-[9px] text-[#89958b]">{groups.length} order sets</span></div>{groups.map(group => <div key={group.distributor.id} className="flex items-center justify-between border-t border-[#e7ece3] py-2 first:border-0 first:pt-0 last:pb-0"><div className="min-w-0 pr-2"><p className="truncate text-[10px] font-semibold">{group.distributor.name}</p><p className="text-[9px] text-[#849087]">{group.distributor.area} · {group.totalUnits} units</p></div><span className="shrink-0 text-[10px] font-bold">{money(group.grandTotal)}</span></div>)}</div>}
+          <div className="border-t border-[#edf0e9] px-4 py-3"><div className="flex justify-between py-1 text-[10px] text-[#718075]"><span>Subtotal (ex-GST)</span><span>{money(subtotal)}</span></div><div className="flex justify-between py-1 text-[10px] text-[#718075]"><span>GST</span><span>{money(gst)}</span></div><div className="mt-1 flex justify-between border-t border-dashed border-[#e4e9e1] pt-2.5"><b className="text-[12px]">Order total</b><b className="text-[15px] font-extrabold">{money(total)}</b></div>
+            <div className="mt-3 grid grid-cols-2 gap-2"><PaymentOption active={payment === 'pay-on-delivery'} title="Pay on delivery" detail="Cash / UPI at delivery" onClick={() => setPayment('pay-on-delivery')}/><PaymentOption active={payment === 'credit-account'} title="14-day credit" detail={`${money(creditAvailable)} available`} onClick={() => setPayment('credit-account')}/></div>{payment === 'credit-account' && total > creditAvailable && <p className="mt-2 text-[10px] font-semibold text-[#b44838]">Order exceeds your available credit by {money(total - creditAvailable)}.</p>}
+            <button disabled={!cart.length} onClick={placeOrder} className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#174f38] text-[12px] font-bold text-white transition hover:bg-[#103e2b] disabled:cursor-not-allowed disabled:opacity-40">Place wholesale order <ArrowRight size={15}/></button><p className="mt-2 text-center text-[9px] text-[#929d94]">GST invoice · Route delivery · Secure checkout</p>
           </div>
+        </div><button onClick={() => setPortal('enterprise')} className="mt-3 flex w-full items-center justify-between rounded-xl border border-[#e5e9e1] bg-white p-3 text-left hover:border-[#b8cdbb]"><div className="flex items-center gap-2.5"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#eff5eb] text-[#37734b]"><CreditCard size={16}/></span><span><b className="block text-[10px]">Credit & statements</b><small className="text-[9px] text-[#849087]">View account activity</small></span></div><ChevronRight size={15} className="text-[#89958b]"/></button></aside>
+      </div>
+    </main>
 
-          {/* Right Sticky Sidebar: Order Summary (Desktop XL+) */}
-          <aside
-            ref={desktopSummaryRef}
-            className="hidden xl:block w-[340px] shrink-0 sticky top-[92px]"
-          >
-            <OrderSummary
-              cart={cart}
-              paymentMethod={paymentMethod}
-              onPaymentMethodChange={setPaymentMethod}
-              onUpdateQuantity={handleUpdateQuantity}
-              onRemoveItem={handleRemoveItem}
-              onClearCart={handleClearCart}
-              onPlaceOrder={handlePlaceOrder}
-              onOpenQuickReorder={() => setIsQuickReorderOpen(true)}
-              creditAvailable={creditAvailable}
-            />
-          </aside>
-        </div>
-      </main>
+    <footer className="border-t border-[#e7e9e1] bg-[#fbfcf9] px-4 py-5"><div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-3 text-[10px] text-[#7d8980]"><span>© 2026 Nattuchantha B2B · Built for Kerala's wholesale community</span><div className="flex items-center gap-4"><button onClick={() => setPortal('distributor')} className="hover:text-[#174f38]">Distributor orders</button><button onClick={() => setPortal('admin')} className="hover:text-[#174f38]">Admin access</button><span className="flex items-center gap-1"><CircleHelp size={12}/> Need help?</span></div></div></footer>
 
-      {/* Mobile / Tablet Slide-Over Cart Drawer */}
-      {isMobileCartOpen && (
-        <div
-          className="xl:hidden fixed inset-0 z-50 flex justify-end bg-slate-900/50"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Order Summary Drawer"
-        >
-          <div className="w-full max-w-md bg-[#F8FAFC] h-full p-4 overflow-y-auto flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="font-display text-sm font-bold text-slate-700">
-                Ayyas Supermarket — Active Order
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsMobileCartOpen(false)}
-                aria-label="Close Order Summary"
-                className="p-2 bg-white border border-gray-200 rounded-lg text-slate-600 hover:text-slate-900 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <OrderSummary
-              cart={cart}
-              paymentMethod={paymentMethod}
-              onPaymentMethodChange={setPaymentMethod}
-              onUpdateQuantity={handleUpdateQuantity}
-              onRemoveItem={handleRemoveItem}
-              onClearCart={handleClearCart}
-              onPlaceOrder={handlePlaceOrder}
-              onOpenQuickReorder={() => {
-                setIsMobileCartOpen(false);
-                setIsQuickReorderOpen(true);
-              }}
-              creditAvailable={creditAvailable}
-            />
-          </div>
-        </div>
-      )}
+    {portal && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10231a]/50 p-3 backdrop-blur-[2px]" onMouseDown={e => { if (e.target === e.currentTarget) setPortal(null); }}><div className="flex max-h-[92vh] w-full max-w-[780px] flex-col overflow-hidden rounded-[20px] bg-[#fbfcf9] shadow-2xl"><div className="flex items-center justify-between border-b border-[#e8ece5] bg-white px-5 py-4 sm:px-6"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#eaf2e8] text-[#286344]">{portal === 'enterprise' ? <Store size={17}/> : portal === 'admin' ? <ShieldCheck size={17}/> : <Truck size={17}/>}</span><div><h2 className="font-display text-[15px] font-extrabold">{portal === 'enterprise' ? 'Enterprise portal' : portal === 'admin' ? 'Operations control center' : 'Distributor order desk'}</h2><p className="mt-0.5 text-[10px] text-[#859187]">{portal === 'enterprise' ? 'Account, statements & exclusive schemes' : portal === 'admin' ? 'Party management · approvals · routes' : 'Distributor-wise dispatch sheets'}</p></div></div><button onClick={() => setPortal(null)} aria-label="Close" className="grid h-8 w-8 place-items-center rounded-lg text-[#68756b] hover:bg-[#f0f3ed]"><X size={17}/></button></div><div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">{portal === 'enterprise' ? <EnterprisePortal party={party} parties={parties} requests={requests} activeTab={enterpriseTab} setTab={setEnterpriseTab} loginId={loginId} setLoginId={setLoginId} loginPassword={loginPassword} setLoginPassword={setLoginPassword} signIn={signIn} requestStatement={requestStatement} placeScheme={placeScheme} orders={orders}/> : portal === 'admin' ? <AdminPortal unlocked={adminUnlocked} code={adminCode} setCode={setAdminCode} unlock={() => { if (adminCode === '2468') setAdminUnlocked(true); else setToast('That demo passcode did not match'); }} parties={parties} setParties={setParties} requests={requests} setRequests={setRequests} form={partyForm} setForm={setPartyForm} orders={orders}/> : <DistributorPortal groups={groups} receipt={receipt} cart={cart} party={party} copyText={copyText}/>}</div></div></div>}
 
-      {/* Quick Reorder Modal */}
-      <QuickReorderModal
-        isOpen={isQuickReorderOpen}
-        onClose={() => setIsQuickReorderOpen(false)}
-        pastOrders={pastOrders}
-        onRepeatOrder={handleRepeatOrder}
-      />
+    {showReorder && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#10231a]/50 p-3" onMouseDown={e => { if (e.target === e.currentTarget) setShowReorder(false); }}><div className="w-full max-w-[540px] overflow-hidden rounded-[20px] bg-[#fbfcf9] shadow-2xl"><div className="flex items-center justify-between border-b border-[#e8ece5] bg-white px-5 py-4"><div><h2 className="font-display text-[15px] font-extrabold">Quick reorder</h2><p className="mt-0.5 text-[10px] text-[#859187]">Bring a previous basket back in one tap</p></div><button onClick={() => setShowReorder(false)} className="grid h-8 w-8 place-items-center rounded-lg hover:bg-[#f0f3ed]"><X size={17}/></button></div><div className="max-h-[65vh] overflow-y-auto p-4">{orders.length ? orders.map(order => <div key={order.id} className="mb-2 rounded-xl border border-[#e8ece5] bg-white p-3.5"><div className="flex items-start justify-between gap-3"><div><b className="text-[11px]">{order.id}</b><p className="mt-1 text-[10px] text-[#87938a]">{order.dateLabel} · {order.items.length} products</p></div><b className="text-[11px]">{money(order.totalAmount)}</b></div><div className="mt-3 flex gap-2"><button onClick={() => { setCart(order.items.map(item => ({ ...item }))); setPayment(order.paymentMethod); setShowReorder(false); setToast(`${order.id} loaded into your order`); }} className="rounded-lg bg-[#174f38] px-3 py-2 text-[10px] font-bold text-white">Replace order</button><button onClick={() => { setCart(prev => { const next = [...prev]; order.items.forEach(incoming => { const existing = next.find(item => item.productId === incoming.productId); if (existing) existing.quantity += incoming.quantity; else next.push({ ...incoming }); }); return next; }); setShowReorder(false); setToast('Previous items added to your order'); }} className="rounded-lg border border-[#dfe5dc] px-3 py-2 text-[10px] font-bold text-[#536157]">Add to current</button></div></div>)) : <p className="py-10 text-center text-sm text-[#849087]">No previous orders to reorder.</p>}</div></div></div>}
 
-      {/* Order Confirmation Modal */}
-      <OrderConfirmationModal
-        receipt={confirmedReceipt}
-        onClose={() => setConfirmedReceipt(null)}
-      />
+    {receipt && <ReceiptModal receipt={receipt} party={party} close={() => setReceipt(null)} copyText={copyText}/>}
+    {toast && <div role="status" className="fixed bottom-5 left-1/2 z-[70] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-xl bg-[#17261f] px-4 py-3 text-center text-[11px] font-semibold text-white shadow-xl">{toast}</div>}
+  </div>;
+}
 
-      {/* Subtle Toast Notification */}
-      {toastMessage && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 bg-slate-900 text-white text-xs font-medium rounded-lg shadow-lg pointer-events-none"
-        >
-          {toastMessage}
-        </div>
-      )}
-    </div>
-  );
+function ProductTile({ product, quantity, add, update }: { product: Product; quantity: number; add: (p: Product, q?: number) => void; update: (p: Product, q: number) => void }) {
+  const imageTone = product.category === 'spices' ? 'bg-[#f5ece4]' : product.category === 'home-care' ? 'bg-[#edf2f2]' : product.category === 'beverages' ? 'bg-[#eff2e7]' : 'bg-[#f3f2e9]';
+  return <article className="group overflow-hidden rounded-[16px] border border-[#e7eae3] bg-white transition hover:-translate-y-0.5 hover:border-[#c5d6c6] hover:shadow-[0_8px_24px_rgba(29,51,36,.07)]"><div className="flex gap-3 p-3.5"><div className={`relative grid h-[104px] w-[100px] shrink-0 place-items-center overflow-hidden rounded-xl ${imageTone}`}><img src={product.image} alt={product.title} className="h-[88%] w-[88%] object-contain mix-blend-multiply transition group-hover:scale-105"/>{product.isDeal && <span className="absolute left-1.5 top-1.5 rounded bg-[#d9ecab] px-1.5 py-0.5 text-[8px] font-extrabold uppercase tracking-wide text-[#42642a]">Deal</span>}</div><div className="flex min-w-0 flex-1 flex-col"><div className="flex items-center justify-between gap-2"><span className="truncate text-[9px] font-extrabold uppercase tracking-[1px] text-[#477551]">{product.brand}</span><span className="shrink-0 rounded-md bg-[#f2f5ef] px-1.5 py-1 text-[8px] font-bold text-[#738076]">{product.gstRate}% GST</span></div><h3 className="mt-1 line-clamp-2 min-h-[32px] text-[12px] font-bold leading-[1.35] text-[#27362d]">{product.shortTitle}</h3><p className="mt-0.5 text-[9px] text-[#929c93]">SKU {product.sku} · MOQ {product.moq}</p><div className="mt-auto flex items-end justify-between gap-2 pt-2"><div><b className="block text-[14px] font-extrabold tracking-[-.3px]">{money(product.wholesalePrice)}<small className="ml-1 text-[9px] font-medium text-[#929c93]">/{product.unitLabel.toLowerCase()}</small></b><span className="text-[9px] font-semibold text-[#4c8b5a]">{product.marginPercent}% retail margin</span></div>{quantity ? <div className="flex h-8 items-center rounded-lg border border-[#d6e3d6] bg-[#f6faf3]"><button onClick={() => update(product, quantity - product.moq)} aria-label="Remove MOQ" className="grid w-7 place-items-center text-[#526c57]"><Minus size={12}/></button><b className="min-w-6 text-center text-[10px]">{quantity}</b><button onClick={() => update(product, quantity + product.moq)} aria-label="Add MOQ" className="grid w-7 place-items-center text-[#286344]"><Plus size={12}/></button></div> : <button onClick={() => add(product)} className="flex h-8 items-center gap-1 rounded-lg bg-[#174f38] px-2.5 text-[10px] font-bold text-white hover:bg-[#103e2b]"><Plus size={13}/> Add</button>}</div></div></div><div className="flex items-center justify-between border-t border-[#f0f2ed] px-3.5 py-2 text-[9px] text-[#89958b]"><span className="flex min-w-0 items-center gap-1 truncate"><Truck size={11} className="shrink-0"/>{getDistributorName(product)}</span><span className="shrink-0">MRP {money(product.mrp)}</span></div></article>;
+}
+function getDistributorName(product: Product) { const group = groupOrderByDistributor([{ productId: product.id, quantity: 1 }])[0]; return group?.distributor.name ?? 'Kerala distribution network'; }
+function PaymentOption({ active, title, detail, onClick }: { active: boolean; title: string; detail: string; onClick: () => void }) { return <button onClick={onClick} className={`rounded-lg border p-2 text-left ${active ? 'border-[#6a9c74] bg-[#f2f7ef]' : 'border-[#e8ece5] bg-white'}`}><span className="flex items-center gap-1.5 text-[9px] font-bold"><span className={`grid h-3.5 w-3.5 place-items-center rounded-full border ${active ? 'border-[#39714a] bg-[#39714a] text-white' : 'border-[#cbd3ca]'}`}>{active && <Check size={9}/>}</span>{title}</span><span className="mt-1 block pl-5 text-[8px] text-[#859187]">{detail}</span></button>; }
+function EnterprisePortal({ party, parties, requests, activeTab, setTab, loginId, setLoginId, loginPassword, setLoginPassword, signIn, requestStatement, placeScheme, orders }: { party: PartyAccount; parties: PartyAccount[]; requests: StatementRequest[]; activeTab: EnterpriseTab; setTab: (tab: EnterpriseTab) => void; loginId: string; setLoginId: (v: string) => void; loginPassword: string; setLoginPassword: (v: string) => void; signIn: (id: string, password: string) => void; requestStatement: () => void; placeScheme: (id: string, qty: number) => void; orders: PastOrder[] }) {
+  const [demo, setDemo] = useState('');
+  const [isEnterprise] = useState(party.role === 'supermarket');
+  return <div>{!isEnterprise && <div className="mb-5 rounded-2xl border border-[#e3e9df] bg-white p-4 sm:p-5"><div className="mb-4 flex items-start gap-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf4e9] text-[#34714a]"><LockKeyhole size={17}/></span><div><b className="text-[12px]">Sign in to your business account</b><p className="mt-1 text-[10px] text-[#849087]">Access supermarket credit, statements and bulk schemes.</p></div></div><form onSubmit={e => { e.preventDefault(); signIn(loginId, loginPassword); }} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]"><input value={loginId} onChange={e => setLoginId(e.target.value)} placeholder="Store login ID" className="h-10 rounded-lg border border-[#e4e9e1] bg-[#fafbf8] px-3 text-[11px] outline-none focus:border-[#78a184]"/><input value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="Password / PIN" type="password" className="h-10 rounded-lg border border-[#e4e9e1] bg-[#fafbf8] px-3 text-[11px] outline-none focus:border-[#78a184]"/><button className="h-10 rounded-lg bg-[#174f38] px-4 text-[10px] font-bold text-white">Sign in</button></form><p className="mt-3 text-[9px] font-bold uppercase tracking-[1px] text-[#8b978d]">Demo accounts · password 123</p><div className="mt-2 flex flex-wrap gap-2">{parties.filter(p => p.role === 'supermarket' && p.active).map(p => <button key={p.id} onClick={() => { setLoginId(p.loginId); setLoginPassword('123'); setDemo(p.loginId); }} className={`rounded-lg border px-2.5 py-2 text-[9px] font-semibold ${demo === p.loginId ? 'border-[#8bab8d] bg-[#eff5eb] text-[#285c3e]' : 'border-[#e7ebe4] bg-white text-[#647167]'}`}>{p.businessName}</button>)}</div></div>}
+    <div className="mb-4 flex gap-1 rounded-xl bg-[#eef2eb] p-1">{([['overview','Account'],['schemes','Scheme deals'],['statements','Statements']] as [EnterpriseTab,string][]).map(([id,label]) => <button key={id} onClick={() => setTab(id)} className={`flex-1 rounded-lg px-2 py-2.5 text-[10px] font-bold ${activeTab === id ? 'bg-white text-[#245c3e] shadow-sm' : 'text-[#77847a]'}`}>{label}</button>)}</div>
+    {activeTab === 'overview' && <><div className="mb-4 rounded-2xl bg-[#174f38] p-5 text-white"><p className="text-[9px] font-bold uppercase tracking-[1.5px] text-white/65">CURRENT ACCOUNT</p><h3 className="mt-1 font-display text-[19px] font-extrabold">{party.businessName}</h3><p className="mt-1 text-[10px] text-white/65">{party.storeCode} · {party.routeArea}</p><div className="mt-5 grid grid-cols-3 gap-3 border-t border-white/15 pt-4"><Metric label="Credit limit" value={money(party.creditLimit)}/><Metric label="Credit used" value={money(party.creditUsed)}/><Metric label="Available" value={money(Math.max(0, party.creditLimit - party.creditUsed))}/></div></div><div className="rounded-xl border border-[#e6eae3] bg-white p-4"><div className="flex items-center justify-between"><b className="text-[11px]">Recent billing activity</b><span className="text-[9px] text-[#88938a]">{orders.length} orders</span></div>{orders.slice(0,4).map(order => <div key={order.id} className="flex items-center justify-between border-t border-[#f0f2ed] py-2.5 first:mt-3"><div><b className="block text-[10px]">{order.id}</b><span className="text-[9px] text-[#89958b]">{order.dateLabel} · {order.status}</span></div><b className="text-[10px]">{money(order.totalAmount)}</b></div>)}</div></>}
+    {activeTab === 'schemes' && <div className="grid gap-3 md:grid-cols-2">{ENTERPRISE_SCHEMES.map(scheme => { const product = PRODUCTS.find(p => p.id === scheme.productId); return <article key={scheme.id} className="rounded-xl border border-[#e5e9e1] bg-white p-4"><div className="flex items-start justify-between gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#f3f3df] text-[#8a7930]"><BadgePercent size={16}/></span><span className="rounded-full bg-[#e9f2df] px-2 py-1 text-[8px] font-bold text-[#477044]">{scheme.schemeBadge}</span></div><h3 className="mt-3 text-[11px] font-extrabold leading-snug">{scheme.title}</h3><p className="mt-1.5 text-[9px] leading-relaxed text-[#849087]">{scheme.description}</p><div className="mt-3 flex items-center justify-between border-t border-[#edf0e9] pt-3"><span className="text-[9px] text-[#66756a]">MOQ {scheme.minQty} · {scheme.extraDiscountPercent}% scheme</span><button onClick={() => placeScheme(scheme.productId, scheme.minQty)} className="rounded-lg bg-[#174f38] px-3 py-2 text-[9px] font-bold text-white">Add deal</button></div>{product && <p className="mt-2 text-[9px] text-[#89958b]">{product.shortTitle} · {money(product.wholesalePrice)}/unit</p>}</article>; })}</div>}
+    {activeTab === 'statements' && <><div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#e5e9e1] bg-white p-4"><div><b className="text-[11px]">Billing statements</b><p className="mt-1 text-[9px] text-[#849087]">Request an account statement for your records.</p></div><button onClick={requestStatement} className="flex items-center gap-1.5 rounded-lg bg-[#174f38] px-3 py-2.5 text-[9px] font-bold text-white"><FileText size={13}/> Request statement</button></div><div className="rounded-xl border border-[#e5e9e1] bg-white p-4"><b className="text-[11px]">Statement requests</b>{requests.filter(item => item.partyId === party.id).length ? requests.filter(item => item.partyId === party.id).map(item => <div key={item.id} className="mt-3 flex items-center justify-between border-t border-[#edf0e9] pt-3"><div><b className="block text-[10px]">{item.period}</b><span className="text-[9px] text-[#89958b]">{item.id} · Requested {item.requestedAt}</span></div><span className={`rounded-full px-2.5 py-1 text-[8px] font-bold ${item.status === 'Approved' ? 'bg-[#e8f3e7] text-[#3d7746]' : 'bg-[#fff3dc] text-[#98722c]'}`}>{item.status}</span></div>) : <p className="py-5 text-[10px] text-[#89958b]">No statements requested yet.</p>}</div></>}
+  </div>;
+}
+function Metric({ label, value }: { label: string; value: string }) { return <div><p className="text-[8px] text-white/60">{label}</p><b className="mt-1 block text-[11px]">{value}</b></div>; }
+function AdminPortal({ unlocked, code, setCode, unlock, parties, setParties, requests, setRequests, form, setForm, orders }: { unlocked: boolean; code: string; setCode: (v:string)=>void; unlock:()=>void; parties: PartyAccount[]; setParties: React.Dispatch<React.SetStateAction<PartyAccount[]>>; requests: StatementRequest[]; setRequests: React.Dispatch<React.SetStateAction<StatementRequest[]>>; form: {businessName:string;loginId:string;password:string;role:PartyAccount['role'];storeCode:string;routeArea:string;phone:string;creditLimit:string}; setForm: React.Dispatch<React.SetStateAction<{businessName:string;loginId:string;password:string;role:PartyAccount['role'];storeCode:string;routeArea:string;phone:string;creditLimit:string}>>; orders: PastOrder[] }) {
+  const [tab, setTab] = useState<'parties'|'requests'|'routes'>('parties');
+  if (!unlocked) return <div className="mx-auto max-w-[360px] py-8 text-center"><span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#eaf2e8] text-[#286344]"><LockKeyhole size={21}/></span><h3 className="mt-4 font-display text-[16px] font-extrabold">Admin access</h3><p className="mt-1 text-[10px] text-[#849087]">Enter the demo passcode to open the control center.</p><form onSubmit={e=>{e.preventDefault();unlock();}} className="mt-5 flex gap-2"><input value={code} onChange={e=>setCode(e.target.value)} type="password" placeholder="Demo passcode" className="h-10 min-w-0 flex-1 rounded-lg border border-[#e4e9e1] bg-white px-3 text-[11px] outline-none focus:border-[#78a184]"/><button className="rounded-lg bg-[#174f38] px-4 text-[10px] font-bold text-white">Unlock</button></form><p className="mt-3 text-[9px] text-[#9aa39b]">Demo passcode: 2468</p></div>;
+  const createParty = (event: React.FormEvent) => { event.preventDefault(); const account: PartyAccount = { id: `party-${Date.now()}`, ...form, creditLimit: Number(form.creditLimit) || 0, creditUsed: 0, active: true }; setParties(prev => [account, ...prev]); setForm({ businessName:'', loginId:'', password:'', role:'retailer', storeCode:'', routeArea:'', phone:'', creditLimit:'50000' }); };
+  return <div><div className="mb-4 flex gap-1 rounded-xl bg-[#eef2eb] p-1">{([['parties','Parties & IDs'],['requests','Approvals'],['routes','Distributor map']] as const).map(([id,title])=><button key={id} onClick={()=>setTab(id)} className={`flex-1 rounded-lg px-2 py-2.5 text-[10px] font-bold ${tab===id?'bg-white text-[#245c3e] shadow-sm':'text-[#77847a]'}`}>{title}</button>)}</div>
+    {tab==='parties' && <div className="grid items-start gap-4 lg:grid-cols-[1.05fr_.95fr]"><form onSubmit={createParty} className="rounded-xl border border-[#e5e9e1] bg-white p-4"><h3 className="mb-3 text-[11px] font-extrabold">Create party account</h3><div className="grid grid-cols-2 gap-2">{([['businessName','Business name'],['loginId','Login ID'],['password','Password / PIN'],['storeCode','Store code'],['routeArea','Route / area'],['phone','Phone'],['creditLimit','Credit limit (₹)']] as [keyof typeof form,string][]).map(([key,label])=><label key={key} className="text-[9px] font-semibold text-[#6d7b70]">{label}<input required={key!=='creditLimit'} type={key==='creditLimit'?'number':'text'} value={form[key]} onChange={e=>setForm(prev=>({...prev,[key]:e.target.value}))} className="mt-1 h-9 w-full rounded-lg border border-[#e5e9e1] px-2.5 text-[10px] outline-none focus:border-[#78a184]"/></label>)}<label className="text-[9px] font-semibold text-[#6d7b70]">Role<select value={form.role} onChange={e=>setForm(prev=>({...prev,role:e.target.value as PartyAccount['role']}))} className="mt-1 h-9 w-full rounded-lg border border-[#e5e9e1] bg-white px-2 text-[10px]"><option value="retailer">Retailer</option><option value="supermarket">Supermarket</option><option value="distributor">Distributor</option></select></label></div><button className="mt-3 h-9 w-full rounded-lg bg-[#174f38] text-[10px] font-bold text-white">Create party ID</button></form><div className="rounded-xl border border-[#e5e9e1] bg-white p-4"><div className="mb-3 flex justify-between"><h3 className="text-[11px] font-extrabold">Active parties</h3><span className="text-[9px] text-[#839087]">{parties.length} accounts</span></div><div className="max-h-[340px] space-y-2 overflow-y-auto">{parties.map(item=><div key={item.id} className="flex items-center justify-between gap-2 rounded-lg bg-[#f7f8f4] p-2.5"><div className="min-w-0"><b className="block truncate text-[10px]">{item.businessName}</b><span className="text-[8px] text-[#859187]">{item.loginId} · {item.role} · {item.storeCode}</span></div><button onClick={()=>setParties(prev=>prev.map(p=>p.id===item.id?{...p,active:!p.active}:p))} className={`shrink-0 rounded-full px-2 py-1 text-[8px] font-bold ${item.active?'bg-[#e6f2e5] text-[#39734a]':'bg-[#fbe9e6] text-[#a25345]'}`}>{item.active?'Active':'Inactive'}</button></div>)}</div></div></div>}
+    {tab==='requests' && <div className="rounded-xl border border-[#e5e9e1] bg-white p-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-[11px] font-extrabold">Statement requests</h3><span className="text-[9px] text-[#849087]">{requests.filter(item=>item.status==='Pending').length} pending</span></div>{requests.length?requests.map(item=><div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-[#edf0e9] py-3 first:border-0"><div><b className="block text-[10px]">{item.businessName} · {item.storeCode}</b><span className="text-[9px] text-[#89958b]">{item.period} · {item.id} · {item.requestedAt}</span></div>{item.status==='Pending'?<button onClick={()=>setRequests(prev=>prev.map(request=>request.id===item.id?{...request,status:'Approved'}:request))} className="rounded-lg bg-[#e8f3e7] px-3 py-2 text-[9px] font-bold text-[#39734a]">Approve</button>:<span className="rounded-full bg-[#e8f3e7] px-2.5 py-1 text-[8px] font-bold text-[#39734a]">Approved</span>}</div>):<p className="py-8 text-center text-[10px] text-[#89958b]">No requests submitted.</p>}<div className="mt-4 rounded-lg bg-[#f5f7f2] p-3 text-[9px] text-[#67756a]">Active orders on record: <b>{orders.filter(order=>order.status==='Pending Dispatch').length}</b></div></div>}
+    {tab==='routes' && <div className="grid gap-3 md:grid-cols-2">{DISTRIBUTORS.map(distributor=><div key={distributor.id} className="rounded-xl border border-[#e5e9e1] bg-white p-4"><div className="flex items-start justify-between"><span className="grid h-8 w-8 place-items-center rounded-lg bg-[#edf4e9] text-[#34714a]"><Truck size={16}/></span><span className="rounded-full bg-[#f1f3ed] px-2 py-1 text-[8px] text-[#718075]">{distributor.area}</span></div><h3 className="mt-3 text-[11px] font-extrabold">{distributor.name}</h3><p className="mt-1 text-[9px] text-[#89958b]">WhatsApp +{distributor.phone}</p><div className="mt-3 flex flex-wrap gap-1">{distributor.brands.map(item=><span key={item} className="rounded-md bg-[#f1f5ee] px-2 py-1 text-[8px] font-bold text-[#58715b]">{item}</span>)}</div></div>)}<div className="rounded-xl border border-dashed border-[#ccd8ca] p-4"><div className="flex items-center gap-2"><Boxes size={16} className="text-[#57755c]"/><b className="text-[11px]">Order activity</b></div><p className="mt-2 text-[10px] text-[#829087]">{orders.length} orders recorded · fulfillment split by distributor</p></div></div>}
+  </div>;
+}
+function DistributorPortal({ groups, receipt, cart, party, copyText }: { groups: ReturnType<typeof groupOrderByDistributor>; receipt: {id:string;time:string;lines:CartItem[];payment:PaymentMethod}|null; cart:CartItem[]; party:PartyAccount; copyText:(text:string)=>void }) {
+  const orderLines = receipt?.lines ?? cart;
+  const orderId = receipt?.id ?? 'Draft order';
+  const time = receipt?.time ?? new Date().toLocaleString('en-IN');
+  const actualGroups = receipt ? groupOrderByDistributor(orderLines) : groups;
+  return <div><div className="mb-4 rounded-xl bg-[#eff4ea] p-3 text-[10px] leading-relaxed text-[#5e705f]"><b>Dispatch-ready order sets.</b> Cart items are automatically grouped by assigned distributor. Copy each sheet or notify the route partner on WhatsApp.</div>{actualGroups.length ? <div className="space-y-3">{actualGroups.map(group=>{ const text=buildDistributorWhatsAppText({orderId,storeName:party.businessName,storeCode:party.storeCode,routeArea:party.routeArea,placedAt:time,group}); return <div key={group.distributor.id} className="overflow-hidden rounded-xl border border-[#e5e9e1] bg-white"><div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#edf0e9] bg-[#f8faf6] p-3.5"><div><h3 className="text-[11px] font-extrabold">{group.distributor.name}</h3><p className="mt-1 flex items-center gap-1 text-[9px] text-[#87938a]"><MapPin size={11}/>{group.distributor.area} · +{group.distributor.phone}</p></div><span className="rounded-full bg-[#e9f2e7] px-2 py-1 text-[8px] font-bold text-[#43744b]">{group.totalUnits} units</span></div><div className="p-3.5">{group.lines.map(line=><div key={line.product.id} className="flex items-center justify-between gap-2 py-1.5"><span className="min-w-0 truncate text-[10px]">{line.quantity} × {line.product.shortTitle}</span><span className="shrink-0 text-[10px] font-semibold">{money(line.lineSubtotal)}</span></div>)}<div className="mt-2 space-y-1 border-t border-dashed border-[#e5e9e1] pt-2 text-[9px] text-[#758178]"><div className="flex justify-between"><span>Subtotal</span><span>{money(group.subtotal)}</span></div><div className="flex justify-between"><span>GST</span><span>{money(group.gstTotal)}</span></div><div className="flex justify-between pt-1 text-[11px] font-extrabold text-[#26352b]"><span>Order total</span><span>{money(group.grandTotal)}</span></div></div><div className="mt-3 grid grid-cols-2 gap-2"><a href={`https://wa.me/${group.distributor.phone}?text=${encodeURIComponent(text)}`} target="_blank" rel="noreferrer" className="flex h-9 items-center justify-center gap-1.5 rounded-lg bg-[#218c54] text-[9px] font-bold text-white"><Headphones size={13}/> Notify WhatsApp</a><button onClick={()=>copyText(text)} className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[#e3e8e0] text-[9px] font-bold text-[#536157]"><Clipboard size={13}/> Copy order</button></div></div></div>; })}</div> : <div className="rounded-xl border border-dashed border-[#dce2d9] bg-white py-12 text-center"><Package size={23} className="mx-auto text-[#9aa69c]"/><p className="mt-2 text-[11px] font-semibold">No items to dispatch</p><p className="mt-1 text-[9px] text-[#89958b]">Add products to the cart to see distributor order sets.</p></div>}</div>;
+}
+function ReceiptModal({ receipt, party, close, copyText }: { receipt:{id:string;time:string;lines:CartItem[];payment:PaymentMethod}; party:PartyAccount; close:()=>void; copyText:(text:string)=>void }) {
+  const groups=groupOrderByDistributor(receipt.lines); const total=groups.reduce((sum,group)=>sum+group.grandTotal,0);
+  return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-[#10231a]/55 p-3 backdrop-blur-[2px]" onMouseDown={e=>{if(e.target===e.currentTarget)close();}}><div className="max-h-[90vh] w-full max-w-[650px] overflow-hidden rounded-[20px] bg-[#fbfcf9] shadow-2xl"><div className="relative overflow-hidden bg-[#174f38] p-5 text-white sm:p-6"><button onClick={close} className="absolute right-4 top-4 grid h-8 w-8 place-items-center rounded-lg bg-white/10 hover:bg-white/20"><X size={16}/></button><span className="grid h-9 w-9 place-items-center rounded-xl bg-white/15"><CheckCircle2 size={20}/></span><h2 className="mt-3 font-display text-[20px] font-extrabold">Order placed successfully</h2><p className="mt-1 text-[10px] text-white/70">{receipt.id} · {receipt.time} · {party.businessName}</p><div className="mt-4 flex flex-wrap gap-4 border-t border-white/15 pt-3 text-[10px]"><span>{groups.length} distributor order sets</span><span>{receipt.payment==='credit-account'?'14-day credit':'Pay on delivery'}</span><b className="ml-auto text-[13px]">{money(total)}</b></div></div><div className="max-h-[55vh] space-y-3 overflow-y-auto p-4 sm:p-5"><p className="text-[9px] font-bold uppercase tracking-[1.3px] text-[#7e8a80]">Your order is split for route fulfillment</p>{groups.map(group=>{const message=buildDistributorWhatsAppText({orderId:receipt.id,storeName:party.businessName,storeCode:party.storeCode,routeArea:party.routeArea,placedAt:receipt.time,group});return <div key={group.distributor.id} className="rounded-xl border border-[#e5e9e1] bg-white p-3.5"><div className="flex items-start justify-between gap-3"><div><b className="text-[11px]">{group.distributor.name}</b><p className="mt-1 flex items-center gap-1 text-[9px] text-[#849087]"><MapPin size={10}/>{group.distributor.area}</p></div><span className="rounded-full bg-[#eff5eb] px-2 py-1 text-[8px] font-bold text-[#47744b]">{group.totalUnits} units</span></div><div className="my-2.5 border-y border-[#f0f2ed] py-2">{group.lines.map(line=><div key={line.product.id} className="flex justify-between gap-2 py-1 text-[9px]"><span>{line.quantity} × {line.product.shortTitle}</span><span className="font-semibold">{money(line.lineSubtotal)}</span></div>)}</div><div className="flex justify-between text-[9px] text-[#78857b]"><span>Subtotal {money(group.subtotal)} + GST {money(group.gstTotal)}</span><b className="text-[11px] text-[#24352a]">{money(group.grandTotal)}</b></div><div className="mt-3 flex gap-2"><a href={`https://wa.me/${group.distributor.phone}?text=${encodeURIComponent(message)}`} target="_blank" rel="noreferrer" className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#218c54] py-2.5 text-[9px] font-bold text-white"><Headphones size={13}/> Notify WhatsApp</a><button onClick={()=>copyText(message)} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[#e3e8e0] py-2.5 text-[9px] font-bold text-[#536157]"><Clipboard size={13}/> Copy order</button></div></div>;})}</div><div className="border-t border-[#e8ece5] bg-white p-3.5 text-center"><button onClick={close} className="rounded-lg bg-[#174f38] px-6 py-2.5 text-[10px] font-bold text-white">Continue shopping</button></div></div></div>;
 }
